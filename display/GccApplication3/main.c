@@ -1,5 +1,5 @@
-#define F_CPU 8000000UL // configura a frequencia da CPU
-#include <avr/io.h>
+#define F_CPU 8000000UL // Configura a frequencia da CPU
+#include <avr/io.h> // Importa as bibliotecas utilizadas para o funcionamento, como a do avr e a de delay
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
@@ -8,23 +8,28 @@
 #define LATCH_PIN PB1
 #define CLOCK_PIN PB2
 
-// Define os pinos dos displays de sete segmentos
-#define DISPLAY1 0
-#define DISPLAY2 1
-#define DISPLAY3 2
+// Variaveis globais
+uint16_t decimos = 0; // Variavel para contar o tempo de 100ms
+uint8_t contagem_ativa = 0; 
+char carac_maximo[6] = {"Maximo"}; // String que vai ser enviado quando o o display contar 60 seg
+uint8_t num_char; // Variavel que incrementa a string
 
-// Variáveis globais
-volatile uint16_t decimos = 0;
-volatile uint8_t contagem_ativa = 0;
-volatile uint8_t transmit_buffer[6] = {'M', 'a', 'x', 'i', 'm', 'o'};
-volatile uint8_t transmit_index = 6;
+// shiftOut(uint8_t valor);
+//display_Num(uint8_t numero);
+//Tempo_Display(uint16_t tempo);
+//Usart(uint16_t baud_rate);
+//ISR(TIMER1_COMPA_vect);
+//ISR(USART_RX_vect);
+//ISR(USART_UDRE_vect);
+
+
 
 // Função para enviar dados para os registradores de deslocamento
-void shiftOut(uint8_t val) {
+void shiftOut(uint8_t valor) {
 	uint8_t i;
 
 	for (i = 0; i < 8; i++) {
-		if (val & (1 << i))
+		if (valor & (1 << i))
 		PORTB |= (1 << DATA_PIN);
 		else
 		PORTB &= ~(1 << DATA_PIN);
@@ -37,9 +42,10 @@ void shiftOut(uint8_t val) {
 	}
 	PORTB &= ~(1 << DATA_PIN);
 }
-void displayNumber(uint8_t number) {
-	// Tabela de segmentos para exibir os dígitos de 0 a 9
-	const uint8_t segments[] = { // valores investidos de 7 segmentos anodo comum, pois o registrador de deslocamento manda do mais significativo pro menos
+
+void display_Num(uint8_t numero) {
+	 // Tabela para exibir os dígitos de 0 a 9
+	const uint8_t Tabela[] = { // Valores investidos do display de  7 segmentos anodo comum, pois o registrador de deslocamento envia do mais significativo pro menos
 		0b00000011, // 0
 		0b10011111, // 1
 		0b00100101, // 2
@@ -52,7 +58,7 @@ void displayNumber(uint8_t number) {
 		0b00001001  // 9
 	};
 	
-	shiftOut(segments[number]);
+	shiftOut(Tabela[numero]); // Carrega os numeros para função do registrador de deslocamento para poder enviar-los
 	
 	_delay_us(100);
 	PORTB |= (1 << LATCH_PIN);
@@ -61,92 +67,79 @@ void displayNumber(uint8_t number) {
 	_delay_us(100);
 }
 
-void displayTime(uint16_t segundos) {
-	uint8_t dezenas = segundos / 100;
-	uint8_t unidade = (segundos / 10) % 10;
-	uint8_t decimos = segundos % 10;
+void Tempo_Display(uint16_t tempo) {// Divide em cada tempo e salva com seus respectivos digitos
+	uint8_t decimos = tempo / 100;
+	uint8_t unidade = (tempo / 10) % 10;
+	uint8_t dezenas = tempo % 10;
 	
-	displayNumber(dezenas);
-	displayNumber(unidade);
-	displayNumber(decimos);
+	display_Num(decimos);
+	display_Num(unidade);
+	display_Num(dezenas);
 }
 
 // Função para configurar a USART
 void Usart(uint16_t baud_rate) {
-	uint16_t ubrr_value = F_CPU / 16 / baud_rate - 1; // calculo do valor para o registrador UBRR
-	UBRR0H = (uint8_t)(ubrr_value >> 8); // valor mais significativo do UBRR 
-	UBRR0L = (uint8_t)ubrr_value; // valor menos significativo do UBRR
-	UCSR0B = (1 << RXEN0) | (1 << TXEN0) | (1 << RXCIE0) | (1 << UDRIE0); // habilita a recpeção, transmissão, a interrupção de recepção e transmissão da USART
-	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); // coloca para receber ou enviar ate 8 bits
-}
-
-// Função para transmitir dados pela USART
-void USART_Transmit(uint8_t data) {
-	while (!(UCSR0A & (1 << UDRE0))) // verifica sem tem dados para transmitir
-	;
-	UDR0 = data;
+	uint16_t valor_ubbr = F_CPU / 16 / baud_rate - 1;	// Calculo do valor para o registrador UBRR
+	UBRR0H = (uint8_t)(valor_ubbr >> 8); // Valor mais significativo do UBRR 
+	UBRR0L = (uint8_t)valor_ubbr; // Valor menos significativo do UBRR
+	UCSR0B = (1 << RXEN0) | (1 << TXEN0) | (1 << RXCIE0);	// Habilita a recepção, transmissão, a interrupção de recepção e transmissão da USART
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00) | (1 << USBS0); // Coloca para receber ou enviar ate 8 bits e 1 bit de parada
 }
 
 // Interrupção para o temporizador TC1
 ISR(TIMER1_COMPA_vect) {
-	if (contagem_ativa) {
-		displayTime(decimos);
-		decimos++;
-	}
+		Tempo_Display(decimos); 
+		decimos++;	// Incrementa o decimos
+		if (decimos >= 600) {	// Se o decimos chegar a 600ms(60s) 
+			contagem_ativa = 0;	// a contagem_ativa faz com que o comando C reconheça que a contagem parou
+			num_char = 0; 
+			UCSR0B |= (1 << UDRIE0); // Habilita a interrupcao de transmissao
+			TIMSK1 &= ~(1 << OCIE1A );	// Desabilita a interrupção do contador
+		}
 	
-
-	if (decimos >= 600) {
-			contagem_ativa = 0;
-			transmit_index = 0;
-			UCSR0B |= (1 << UDRIE0);	
-			TIMSK1 &= ~(1 << OCIE1A);
-	}
 }
 
 // Interrupção para a recpecao na Usart
 ISR(USART_RX_vect) {
-	uint8_t comando = UDR0;
-
-	if (comando == 'I' || comando == 'i') // recebe I para iniciar a contagem
+	uint8_t comando = UDR0;	// Verifica se tem dados recebidos no reg UDR0 
+	if (comando == 'I' || comando == 'i'){	// Recebe I ou i para iniciar a contagem
+	TIMSK1 |= (1 << OCIE1A); 
 	contagem_ativa = 1;
-	else if (comando == 'P' || comando == 'p') // recebe P para parar a contagem
+	}
+	else if (comando == 'P' || comando == 'p'){	// Recebe P ou p para parar a contagem
+	TIMSK1 &= ~(1 << OCIE1A); 
 	contagem_ativa = 0;
-
-	else if (comando == 'C' || comando == 'c') { // recebe C para continuar a contagem apenas quando esta parada
+	}
+	else if (comando == 'C' || comando == 'c') { // Recebe C ou c para resetar a contagem apenas quando estiver parada
 		if (!contagem_ativa) {
+			TIMSK1 |= (1 << OCIE1A); 
 			decimos = 0;
-			contagem_ativa = 1;
 		}
 	}
 }
 
-// Interrupção para a transmissão de dados (USART UDRE)
+// Interrupção para a transmissão de dados
 ISR(USART_UDRE_vect) {
-	if (transmit_index < 6) {
-		UDR0 = transmit_buffer[transmit_index];
-		transmit_index++;
+	if (num_char <= 6) {
+		UDR0 = carac_maximo[num_char];
+		num_char++;
 		} else {
-		UCSR0B &= ~(1 << UDRIE0); // Desabilita a interrupção de transmissão da USART 
+		UCSR0B &= ~(1 << UDRIE0);// Desabilita a interrupção de transmissão da USART 
 	}
 }
 
 int main(void) {
 	// Configuração dos registradores de deslocamento
-	DDRB |= (1 << DATA_PIN) | (1 << LATCH_PIN) | (1 << CLOCK_PIN) 
-	displayTime(0); // configura para quando iniciar o display inciar em 00,0
+	DDRB |= (1 << DATA_PIN) | (1 << LATCH_PIN) | (1 << CLOCK_PIN) ;
+	Tempo_Display(0);// Configura para quando iniciar o display inciar em 00,0
 
-	// Configuração da USART
-	Usart(9600);
+	Usart(9600); //Configuração da USART para 9600 bps
 
-	// Configuração do temporizador (TIMER1)
-	TCCR1B |= (1 << WGM12) | (1 << CS12) | (1 << CS10); // Modo CTC, prescaler de 1024
-	OCR1A = 780; //
-	TIMSK1 |= (1 << OCIE1A); // Habilita a interrupção por comparação A
-	sei();
-	// Loop principal
-	while (1) {
-		
-	}
+	// Configuração do temporizador TC1
+	TCCR1B |= (1 << WGM12) | (1 << CS12) | (1 << CS10);// Modo CTC, prescaler de 1024
+	OCR1A = 780; // Configura o valor do reg OCR1A para que cada pulso ocarra em 100 ms
+	sei();	// Habilita todas as interrupções
 
+	while (1) ;	// Loop principal
 	return 0;
 }
